@@ -60,7 +60,7 @@ type REST struct {
 	podInfoGetter client.PodInfoGetter
 	podPollPeriod time.Duration
 	registry      Registry
-	minions       client.MinionInterface
+	nodes         client.NodeInterface
 	ipCache       ipCache
 	clock         clock
 }
@@ -70,7 +70,7 @@ type RESTConfig struct {
 	PodCache      client.PodInfoGetter
 	PodInfoGetter client.PodInfoGetter
 	Registry      Registry
-	Minions       client.MinionInterface
+	Nodes         client.NodeInterface
 }
 
 // NewREST returns a new REST.
@@ -81,7 +81,7 @@ func NewREST(config *RESTConfig) *REST {
 		podInfoGetter: config.PodInfoGetter,
 		podPollPeriod: time.Second * 10,
 		registry:      config.Registry,
-		minions:       config.Minions,
+		nodes:         config.Nodes,
 		ipCache:       ipCache{},
 		clock:         realClock{},
 	}
@@ -125,7 +125,7 @@ func (rs *REST) Get(ctx api.Context, id string) (runtime.Object, error) {
 	}
 	if rs.podCache != nil || rs.podInfoGetter != nil {
 		rs.fillPodInfo(pod)
-		status, err := getPodStatus(pod, rs.minions)
+		status, err := getPodStatus(pod, rs.nodes)
 		if err != nil {
 			return pod, err
 		}
@@ -137,7 +137,7 @@ func (rs *REST) Get(ctx api.Context, id string) (runtime.Object, error) {
 	return pod, err
 }
 
-func (rs *REST) podToSelectableFields(pod *api.Pod) labels.Set {
+func PodToSelectableFields(pod *api.Pod) labels.Set {
 
 	// TODO we are populating both Status and DesiredState because selectors are not aware of API versions
 	// see https://github.com/GoogleCloudPlatform/kubernetes/pull/2503
@@ -158,7 +158,7 @@ func (rs *REST) podToSelectableFields(pod *api.Pod) labels.Set {
 // ListPods & WatchPods.
 func (rs *REST) filterFunc(label, field labels.Selector) func(*api.Pod) bool {
 	return func(pod *api.Pod) bool {
-		fields := rs.podToSelectableFields(pod)
+		fields := PodToSelectableFields(pod)
 		return label.Matches(labels.Set(pod.Labels)) && field.Matches(fields)
 	}
 }
@@ -169,7 +169,7 @@ func (rs *REST) List(ctx api.Context, label, field labels.Selector) (runtime.Obj
 		for i := range pods.Items {
 			pod := &pods.Items[i]
 			rs.fillPodInfo(pod)
-			status, err := getPodStatus(pod, rs.minions)
+			status, err := getPodStatus(pod, rs.nodes)
 			if err != nil {
 				return pod, err
 			}
@@ -184,7 +184,8 @@ func (rs *REST) List(ctx api.Context, label, field labels.Selector) (runtime.Obj
 
 // Watch begins watching for new, changed, or deleted pods.
 func (rs *REST) Watch(ctx api.Context, label, field labels.Selector, resourceVersion string) (watch.Interface, error) {
-	return rs.registry.WatchPods(ctx, resourceVersion, rs.filterFunc(label, field))
+	// TODO: Add pod status to watch command
+	return rs.registry.WatchPods(ctx, label, field, resourceVersion)
 }
 
 func (*REST) New() runtime.Object {
@@ -274,25 +275,18 @@ func getInstanceIPFromCloud(cloud cloudprovider.Interface, host string) string {
 	return addr.String()
 }
 
-func getPodStatus(pod *api.Pod, minions client.MinionInterface) (api.PodPhase, error) {
+func getPodStatus(pod *api.Pod, nodes client.NodeInterface) (api.PodPhase, error) {
 	if pod.Status.Host == "" {
 		return api.PodPending, nil
 	}
-	if minions != nil {
-		res, err := minions.List()
+	if nodes != nil {
+		_, err := nodes.Get(pod.Status.Host)
 		if err != nil {
+			if errors.IsNotFound(err) {
+				return api.PodFailed, nil
+			}
 			glog.Errorf("Error listing minions: %v", err)
 			return "", err
-		}
-		found := false
-		for _, minion := range res.Items {
-			if minion.Name == pod.Status.Host {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return api.PodFailed, nil
 		}
 	} else {
 		glog.Errorf("Unexpected missing minion interface, status may be in-accurate")

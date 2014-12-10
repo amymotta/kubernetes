@@ -593,8 +593,10 @@ type ServiceSpec struct {
 	// Optional: Supports "TCP" and "UDP".  Defaults to "TCP".
 	Protocol Protocol `json:"protocol,omitempty"`
 
-	// This service will route traffic to pods having labels matching this selector.
-	Selector map[string]string `json:"selector,omitempty"`
+	// This service will route traffic to pods having labels matching this selector. If empty or not present,
+	// the service is assumed to have endpoints set by an external process and Kubernetes will not modify
+	// those endpoints.
+	Selector map[string]string `json:"selector"`
 
 	// PortalIP is usually assigned by the master.  If specified by the user
 	// we will try to respect it or else fail the request.  This field can
@@ -670,10 +672,9 @@ type ResourceName string
 
 type ResourceList map[ResourceName]util.IntOrString
 
-// Minion is a worker node in Kubernetenes
-// The name of the minion according to etcd is in ObjectMeta.Name.
-// TODO: Rename to Node
-type Minion struct {
+// Node is a worker node in Kubernetenes
+// The name of the node according to etcd is in ObjectMeta.Name.
+type Node struct {
 	TypeMeta   `json:",inline"`
 	ObjectMeta `json:"metadata,omitempty"`
 
@@ -684,12 +685,12 @@ type Minion struct {
 	Status NodeStatus `json:"status,omitempty"`
 }
 
-// MinionList is a list of minions.
-type MinionList struct {
+// NodeList is a list of minions.
+type NodeList struct {
 	TypeMeta `json:",inline"`
 	ListMeta `json:"metadata,omitempty"`
 
-	Items []Minion `json:"items"`
+	Items []Node `json:"items"`
 }
 
 // Binding is written by a scheduler to cause a pod to be bound to a host.

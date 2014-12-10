@@ -33,7 +33,7 @@ function get_instance_ids {
 }
 
 function get_vpc_id {
-  python -c 'import json,sys; lst = [str(vpc["VpcId"]) for vpc in json.load(sys.stdin)["Vpcs"] for tag in vpc["Tags"] if tag["Value"] == "kubernetes-vpc"]; print "".join(lst)'
+  python -c 'import json,sys; lst = [str(vpc["VpcId"]) for vpc in json.load(sys.stdin)["Vpcs"] for tag in vpc.get("Tags", []) if tag["Value"] == "kubernetes-vpc"]; print "".join(lst)'
 }
 
 function get_subnet_id {
@@ -106,14 +106,14 @@ function ensure-temp-dir {
 }
 
 function setup-monitoring {
-  if [[ "${ENABLE_CLUSTER_MONITORING}" == "true" ]]; then
+  if [[ "${ENABLE_CLUSTER_MONITORING:-false}" == "true" ]]; then
     # TODO: Implement this.
     echo "Monitoring not currently supported on AWS"
   fi
 }
 
 function teardown-monitoring {
-  if [[ "${ENABLE_CLUSTER_MONITORING}" == "true" ]]; then
+  if [[ "${ENABLE_CLUSTER_MONITORING:-false}" == "true" ]]; then
     # TODO: Implement this.
     echo "Monitoring not currently supported on AWS"
   fi

@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/health"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
 )
 
@@ -107,5 +108,29 @@ func TestHTTPKubeletClientNotFound(t *testing.T) {
 	_, err = podInfoGetter.GetPodInfo(parts[0], api.NamespaceDefault, "foo")
 	if err != ErrPodInfoNotAvailable {
 		t.Errorf("Expected %#v, Got %#v", ErrPodInfoNotAvailable, err)
+	}
+}
+
+func TestNewKubeletClient(t *testing.T) {
+	config := &KubeletConfig{
+		Port:        9000,
+		EnableHttps: false,
+	}
+
+	client, err := NewKubeletClient(config)
+	if err != nil {
+		t.Errorf("Error while trying to create a client: %v", err)
+	}
+	if client == nil {
+		t.Error("client is nil.")
+	}
+
+	host := "127.0.0.1"
+	healthStatus, err := client.HealthCheck(host)
+	if healthStatus != health.Unknown {
+		t.Errorf("Expected %v and got %v.", health.Unknown, healthStatus)
+	}
+	if err == nil {
+		t.Error("Expected a non nil error")
 	}
 }

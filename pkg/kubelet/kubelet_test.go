@@ -19,6 +19,8 @@ package kubelet
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -37,6 +39,11 @@ import (
 	"github.com/google/cadvisor/info"
 	"github.com/stretchr/testify/mock"
 )
+
+func init() {
+	api.ForTesting_ReferencesAllowBlankSelfLinks = true
+	util.ReallyCrash = true
+}
 
 func newTestKubelet(t *testing.T) (*Kubelet, *tools.FakeEtcdClient, *dockertools.FakeDockerClient) {
 	fakeEtcdClient := tools.NewFakeEtcdClient(t)
@@ -75,6 +82,40 @@ func verifyStringArrayEquals(t *testing.T, actual, expected []string) {
 func verifyBoolean(t *testing.T, expected, value bool) {
 	if expected != value {
 		t.Errorf("Unexpected boolean.  Expected %t.  Found %t", expected, value)
+	}
+}
+
+func TestKubeletDirs(t *testing.T) {
+	kubelet, _, _ := newTestKubelet(t)
+	root := kubelet.rootDirectory
+	if err := os.MkdirAll(root, 0750); err != nil {
+		t.Fatalf("can't mkdir(%q): %s", root, err)
+	}
+
+	var exp, got string
+
+	got = kubelet.GetPodsDir()
+	exp = root
+	if got != exp {
+		t.Errorf("expected %q', got %q", exp, got)
+	}
+
+	got = kubelet.GetPodDir("abc123")
+	exp = path.Join(root, "abc123")
+	if got != exp {
+		t.Errorf("expected %q', got %q", exp, got)
+	}
+
+	got = kubelet.GetPodVolumesDir("abc123")
+	exp = path.Join(root, "abc123/volumes")
+	if got != exp {
+		t.Errorf("expected %q', got %q", exp, got)
+	}
+
+	got = kubelet.GetPodContainerDir("abc123", "def456")
+	exp = path.Join(root, "abc123/def456")
+	if got != exp {
+		t.Errorf("expected %q', got %q", exp, got)
 	}
 }
 
@@ -196,6 +237,7 @@ func TestSyncPodsWithTerminationLog(t *testing.T) {
 	err := kubelet.SyncPods([]api.BoundPod{
 		{
 			ObjectMeta: api.ObjectMeta{
+				UID:         "0123-45-67-89ab-cdef",
 				Name:        "foo",
 				Namespace:   "new",
 				Annotations: map[string]string{ConfigSourceAnnotationKey: "test"},
@@ -216,10 +258,11 @@ func TestSyncPodsWithTerminationLog(t *testing.T) {
 
 	fakeDocker.Lock()
 	parts := strings.Split(fakeDocker.Container.HostConfig.Binds[0], ":")
-	if fakeDocker.Container.HostConfig == nil ||
-		!matchString(t, "/tmp/kubelet/foo/bar/k8s_bar\\.[a-f0-9]", parts[0]) ||
-		parts[1] != "/dev/somepath" {
-		t.Errorf("Unexpected containers created %v", fakeDocker.Container)
+	if !matchString(t, kubelet.GetPodContainerDir("0123-45-67-89ab-cdef", "bar")+"/k8s_bar\\.[a-f0-9]", parts[0]) {
+		t.Errorf("Unexpected host path: %s", parts[0])
+	}
+	if parts[1] != "/dev/somepath" {
+		t.Errorf("Unexpected container path: %s", parts[1])
 	}
 	fakeDocker.Unlock()
 }
@@ -860,6 +903,42 @@ func TestCheckHostPortConflicts(t *testing.T) {
 	}
 	if actual := filterHostPortConflicts(append(failureCaseAll, failureCaseNew)); !reflect.DeepEqual(failureCaseAll, actual) {
 		t.Errorf("Expected %#v, Got %#v", expected, actual)
+	}
+}
+
+func TestFieldPath(t *testing.T) {
+	pod := &api.BoundPod{Spec: api.PodSpec{Containers: []api.Container{
+		{Name: "foo"},
+		{Name: "bar"},
+		{Name: "baz"},
+	}}}
+	table := map[string]struct {
+		pod       *api.BoundPod
+		container *api.Container
+		path      string
+		success   bool
+	}{
+		"basic":            {pod, &api.Container{Name: "foo"}, "spec.containers[0]", true},
+		"basic2":           {pod, &api.Container{Name: "baz"}, "spec.containers[2]", true},
+		"basicSamePointer": {pod, &pod.Spec.Containers[0], "spec.containers[0]", true},
+		"missing":          {pod, &api.Container{Name: "qux"}, "", false},
+	}
+
+	for name, item := range table {
+		res, err := fieldPath(item.pod, item.container)
+		if item.success == false {
+			if err == nil {
+				t.Errorf("%v: unexpected non-error", name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%v: unexpected error: %v", name, err)
+			continue
+		}
+		if e, a := item.path, res; e != a {
+			t.Errorf("%v: wanted %v, got %v", name, e, a)
+		}
 	}
 }
 

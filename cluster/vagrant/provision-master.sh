@@ -72,6 +72,7 @@ grains:
   network_mode: openvswitch
   networkInterfaceName: eth1
   etcd_servers: $MASTER_IP
+  api_servers: $MASTER_IP
   cloud: vagrant
   cloud_provider: vagrant
   roles:
@@ -107,6 +108,19 @@ cat <<EOF >/etc/salt/master.d/salt-output.conf
 state_verbose: False
 state_output: mixed
 EOF
+
+# Generate and distribute a shared secret (bearer token) to
+# apiserver and kubelet so that kubelet can authenticate to
+# apiserver to send events.
+kubelet_token=$(cat /dev/urandom | base64 | tr -d "=+/" | dd bs=32 count=1 2> /dev/null)
+
+mkdir -p /srv/salt-overlay/salt/kube-apiserver
+known_tokens_file="/srv/salt-overlay/salt/kube-apiserver/known_tokens.csv"
+(umask u=rw,go= ; echo "$kubelet_token,kubelet,kubelet" > $known_tokens_file)
+
+mkdir -p /srv/salt-overlay/salt/kubelet
+kubelet_auth_file="/srv/salt-overlay/salt/kubelet/kubernetes_auth"
+(umask u=rw,go= ; echo "{\"BearerToken\": \"$kubelet_token\", \"Insecure\": true }" > $kubelet_auth_file)
 
 # Configure nginx authorization
 mkdir -p "$KUBE_TEMP"
@@ -149,7 +163,9 @@ EOF
   curl -sS -L --connect-timeout 20 --retry 6 --retry-delay 10 https://bootstrap.saltstack.com | sh -s -- -M -N
 
   # Install salt-api
-  #
+  #  
+  # This is used to provide the network transport for salt-api
+  yum install -y python-cherrypy
   # This is used to inform the cloud provider used in the vagrant cluster
   yum install -y salt-api
   # Set log level to a level higher than "info" to prevent the message about

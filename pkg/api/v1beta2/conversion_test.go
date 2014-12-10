@@ -16,4 +16,64 @@ limitations under the License.
 
 package v1beta2_test
 
-import ()
+import (
+	"testing"
+
+	newer "github.com/GoogleCloudPlatform/kubernetes/pkg/api"
+	current "github.com/GoogleCloudPlatform/kubernetes/pkg/api/v1beta1"
+)
+
+func TestServiceEmptySelector(t *testing.T) {
+	// Nil map should be preserved
+	svc := &current.Service{Selector: nil}
+	data, err := newer.Scheme.EncodeToVersion(svc, "v1beta2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	obj, err := newer.Scheme.Decode(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	selector := obj.(*newer.Service).Spec.Selector
+	if selector != nil {
+		t.Errorf("unexpected selector: %#v", obj)
+	}
+
+	// Empty map should be preserved
+	svc2 := &current.Service{Selector: map[string]string{}}
+	data, err = newer.Scheme.EncodeToVersion(svc2, "v1beta2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	obj, err = newer.Scheme.Decode(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	selector = obj.(*newer.Service).Spec.Selector
+	if selector == nil || len(selector) != 0 {
+		t.Errorf("unexpected selector: %#v", obj)
+	}
+}
+
+func TestNodeConversion(t *testing.T) {
+	obj, err := current.Codec.Decode([]byte(`{"kind":"Node","apiVersion":"v1beta2"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := obj.(*newer.Node); !ok {
+		t.Errorf("unexpected type: %#v", obj)
+	}
+
+	obj, err = current.Codec.Decode([]byte(`{"kind":"NodeList","apiVersion":"v1beta2"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := obj.(*newer.NodeList); !ok {
+		t.Errorf("unexpected type: %#v", obj)
+	}
+
+	obj = &newer.Node{}
+	if err := current.Codec.DecodeInto([]byte(`{"kind":"Node","apiVersion":"v1beta2"}`), obj); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

@@ -385,19 +385,7 @@ func ValidatePodSpec(spec *api.PodSpec) errs.ValidationErrorList {
 func validateLabels(labels map[string]string, field string) errs.ValidationErrorList {
 	allErrs := errs.ValidationErrorList{}
 	for k := range labels {
-		var n, ns string
-		parts := strings.Split(k, "/")
-		switch len(parts) {
-		case 1:
-			n = parts[0]
-		case 2:
-			ns = parts[0]
-			n = parts[1]
-		default:
-			allErrs = append(allErrs, errs.NewFieldInvalid(field, k, ""))
-			continue
-		}
-		if (ns != "" && !util.IsDNSSubdomain(ns)) || !util.IsDNSLabel(n) {
+		if !util.IsQualifiedName(k) {
 			allErrs = append(allErrs, errs.NewFieldInvalid(field, k, ""))
 		}
 	}
@@ -450,9 +438,12 @@ func ValidateService(service *api.Service, lister ServiceLister, ctx api.Context
 	} else if !supportedPortProtocols.Has(strings.ToUpper(string(service.Spec.Protocol))) {
 		allErrs = append(allErrs, errs.NewFieldNotSupported("spec.protocol", service.Spec.Protocol))
 	}
-	if labels.Set(service.Spec.Selector).AsSelector().Empty() {
-		allErrs = append(allErrs, errs.NewFieldRequired("spec.selector", service.Spec.Selector))
+
+	if service.Spec.Selector != nil {
+		allErrs = append(allErrs, validateLabels(service.Spec.Selector, "spec.selector")...)
 	}
+	allErrs = append(allErrs, validateLabels(service.Labels, "labels")...)
+
 	if service.Spec.CreateExternalLoadBalancer {
 		services, err := lister.ListServices(ctx)
 		if err != nil {
@@ -468,8 +459,6 @@ func ValidateService(service *api.Service, lister ServiceLister, ctx api.Context
 			}
 		}
 	}
-	allErrs = append(allErrs, validateLabels(service.Labels, "labels")...)
-	allErrs = append(allErrs, validateLabels(service.Spec.Selector, "selector")...)
 	return allErrs
 }
 
@@ -561,7 +550,7 @@ func ValidateBoundPod(pod *api.BoundPod) (errors []error) {
 }
 
 // ValidateMinion tests if required fields in the minion are set.
-func ValidateMinion(minion *api.Minion) errs.ValidationErrorList {
+func ValidateMinion(minion *api.Node) errs.ValidationErrorList {
 	allErrs := errs.ValidationErrorList{}
 	if len(minion.Namespace) != 0 {
 		allErrs = append(allErrs, errs.NewFieldInvalid("namespace", minion.Namespace, ""))
@@ -574,7 +563,7 @@ func ValidateMinion(minion *api.Minion) errs.ValidationErrorList {
 }
 
 // ValidateMinionUpdate tests to make sure a minion update can be applied.  Modifies oldMinion.
-func ValidateMinionUpdate(oldMinion *api.Minion, minion *api.Minion) errs.ValidationErrorList {
+func ValidateMinionUpdate(oldMinion *api.Node, minion *api.Node) errs.ValidationErrorList {
 	allErrs := errs.ValidationErrorList{}
 	oldMinion.Labels = minion.Labels
 	if !reflect.DeepEqual(oldMinion, minion) {

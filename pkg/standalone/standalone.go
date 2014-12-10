@@ -104,8 +104,11 @@ func RunApiServer(cl *client.Client, etcdClient tools.EtcdClient, addr string, p
 // RunScheduler starts up a scheduler in it's own goroutine
 func RunScheduler(cl *client.Client) {
 	// Scheduler
-	schedulerConfigFactory := &factory.ConfigFactory{cl}
-	schedulerConfig := schedulerConfigFactory.Create()
+	schedulerConfigFactory := factory.NewConfigFactory(cl)
+	schedulerConfig, err := schedulerConfigFactory.Create(nil, nil)
+	if err != nil {
+		glog.Fatal("Couldn't create scheduler config: %v", err)
+	}
 	scheduler.New(schedulerConfig).Run()
 }
 
@@ -220,6 +223,7 @@ func makePodSourceConfig(kc *KubeletConfig) *config.PodConfig {
 type KubeletConfig struct {
 	EtcdClient              tools.EtcdClient
 	DockerClient            dockertools.DockerInterface
+	CAdvisorPort            uint
 	Address                 util.IP
 	AuthPath                string
 	ApiServerList           util.StringList
@@ -262,7 +266,7 @@ func createAndInitKubelet(kc *KubeletConfig) *kubelet.Kubelet {
 	k.BirthCry()
 
 	go kubelet.GarbageCollectLoop(k)
-	go kubelet.MonitorCAdvisor(k)
+	go kubelet.MonitorCAdvisor(k, kc.CAdvisorPort)
 	kubelet.InitHealthChecking(k)
 
 	return k
